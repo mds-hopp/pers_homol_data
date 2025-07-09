@@ -2,32 +2,47 @@
 ## ## persistent homology measures ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
 ## betti numbers
 ## Wasserstein and bottleneck distances
-## topics &  novel topics
+## topics & novel topics
 
 library(TDAstats)
 library(TDA)
 library(tidyverse)
 library(igraph)
 
-setwd("your/directory")
-load(file = "topicnetwork_multiple_w5_o2_v3l.RData")
+setwd("your/WD")
+load(file = "topicnetwork_multiple_w3_o1_v3l.RData")
 
+# for multi thread implementation of distances 
+# (works under Linux, maybe Mac, unlikely Windows)
+library(parallel)
+num_cores = detectCores()/2 #will use physical cores - if cpu-scheduler plays nicely :)
 
 # create pers. homol. for each chapter
 chap <- 27
 p.hom_cluster <- list()
-for (i in 1:chap){
+
+# multi thread implementation. 
+# note. if it produces "NaN"s, then uncomment the following single thread immplementation
+p.hom_cluster <- mclapply(1:chap, FUN = function(i) {
   print(i)
   current_graph <- subgraph_from_edges(HG_network, E(HG_network)[chapter <= i], delete.vertices = T)
-
   current_dist <- distances(current_graph) %>% as.matrix()
-  p.hom_cluster[[i]] <- calculate_homology(current_dist, dim = 2, threshold = max(current_dist), format = "distmat")
-}
+  return(calculate_homology(current_dist, dim = 2, threshold = max(current_dist), format = "distmat"))
+}, mc.cores = num_cores)
+
+# single thread implementation
+# for (i in 1:chap){
+#   print(i)
+#   current_graph <- subgraph_from_edges(HG_network, E(HG_network)[chapter <= i], delete.vertices = T)
+# 
+#   current_dist <- distances(current_graph) %>% as.matrix()
+#   p.hom_cluster[[i]] <- calculate_homology(current_dist, dim = 2, threshold = max(current_dist), format = "distmat")
+# }
 # takes approx. 42 seconds on an AMD Ryzen 7 7840U (16)
 
 # save dataset
-save(p.hom_cluster, file="p.hom_cluster_w5_o2_v3l.RData")
-#load(file="p.hom_cluster_w5_o2_v3l.RData")
+save(p.hom_cluster, file="p.hom_cluster_w3_o1_voy.RData")
+#load(file="p.hom_cluster_w3_o1_v3l.RData")
 
 ## create betti numbers
 # betti numbers
@@ -55,8 +70,8 @@ detrended_betti <- detrended_betti[,-1]
 names(detrended_betti) <- c("b0_detr","b1_detr","b2_detr")
 
 # save betti numbers
-save(betti_numbers_cluster, detrended_betti, file = "betti_nmbrs_v3l.RData")
-#load(file = "betti_nmbrs_v3l.RData")
+save(betti_numbers_cluster, detrended_betti, file = "betti_nmbrs_w3_o1_voy.RData")
+#load(file = "betti_nmbrs_w3_o1_v3l.RData")
 
 
 # == == == == == == == == == == == == == == == == == == == == == == == == == ==
@@ -64,16 +79,30 @@ save(betti_numbers_cluster, detrended_betti, file = "betti_nmbrs_v3l.RData")
 homol_dist_clust <- data.frame("bottle_dim0"=0, "bottle_dim1"=0, "bottle_dim2"=0,
                                "wasser_dim0"=0, "wasser_dim1"=0, "wasser_dim2"=0)
 
-for (i in 1:26){ # distances are comutative
-  homol_dist_clust[i+1,] <- c(bottleneck(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 0),
-                              bottleneck(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 1),
-                              bottleneck(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 2),
-                              wasserstein(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 0),
-                              wasserstein(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 1),
-                              wasserstein(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 2)
+# multi thread implementation
+homol_dist_clust[2:27,] <- do.call(rbind, mclapply(1:26, FUN = function(i) {
+   print(i)
+  
+  c(bottleneck(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 0),
+    bottleneck(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 1),
+    bottleneck(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 2),
+    wasserstein(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 0),
+    wasserstein(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 1),
+    wasserstein(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 2)
   )
-  print(i)
-}
+}, mc.cores = num_cores))
+
+# single thread implementation
+# for (i in 1:26){ # distances are comutative
+#   homol_dist_clust[i+1,] <- c(bottleneck(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 0),
+#                               bottleneck(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 1),
+#                               bottleneck(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 2),
+#                               wasserstein(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 0),
+#                               wasserstein(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 1),
+#                               wasserstein(p.hom_cluster[[i]], p.hom_cluster[[i+1]], dimension = 2)
+#   )
+#   print(i)
+# }
 
 # i = 1
 homol_dist_clust[1,] <- c(bottleneck(c(), p.hom_cluster[[1]], dimension = 0),
@@ -100,17 +129,17 @@ detrended_dists <- detrended_dists[,-1] # remove linear
 #matplot(detrended_dists, type = "l")
 
 # save data
-save(homol_dist_clust, detrended_dists, file = "homol_dist_clust_w5_o2_v3l.RData")
+save(homol_dist_clust, detrended_dists, file = "homol_dist_clust_w3_o1_qwen.RData")
 #load(file = "homol_dist_clust_w5_o2_v3l.RData")
 
 
 ## == == == == == == == == == == == == == == == == == == == == == == == == == ==
 # number of topics and number of new topics
-load("final_topics_w5_o2_v3l_umap32.RData")
-load("topicnetwork_multiple_w5_o2_v3l.RData")
+load("final_topics_w3_o1_v3l_umap32.RData")
+load("topicnetwork_multiple_w3_o1_v3l.RData")
 
 novel_topics <- V(HG_network)$chapter %>% 
-  sort() %>% 
+  factor(levels = as.character(1:27)) %>% #robust if no new topics in a chapter
   table()
 
 topics_number <- final_topics %>%
@@ -128,7 +157,7 @@ topics_number <- topics_number[,-1]
 matplot(topics_number[,-2], type = "l")
 
 # save data
-save(topics_number, file="topics_v3l.RData")
+save(topics_number, file="topics_w3_o1_qwen.RData")
 
 
 

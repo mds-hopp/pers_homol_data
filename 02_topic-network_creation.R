@@ -8,10 +8,10 @@ library(tidyverse)
 setwd("your/directory")
 load("final_topics_w5_o2_v3l_umap32.RData")
 
-# create edgeweights
+# create edgeweights for later persistent homology analysis (needs distance)
 edgeweights <- vector()
 for (i in 0:(nrow(final_topics)-1)){
-  edgeweights[i] <- proxy::simil(final_topics[c(i,i+1),3:1026]
+  edgeweights[i] <- proxy::dist(final_topics[c(i,i+1),3:1026]
                                 , method = "cosine") %>% as.numeric()
 }
 
@@ -29,21 +29,19 @@ V(HG_network)$chapter <- aggregate(chapter ~ cluster, data = final_topics, FUN =
   select(chapter) %>% unlist() %>% as.numeric()
 
 
-# simplify the graph
+# simplify the graph, leave multiple edges for later pers. homol. step.
 HG_network <- igraph::simplify(HG_network
                                , remove.multiple = F
                                , remove.loops = T)
 
-# for plotting
+# for plotting and network analysis
 HG_network2 <- igraph::simplify(HG_network
                                 , remove.multiple = T
-                                , remove.loops = T
-                                , edge.attr.comb = "sum")
+                                , remove.loops = T)
 
 # saving the graph
 save(HG_network, file="topicnetwork_multiple_w5_o2_v3l.RData")
 #load(file="topicnetwork_multiple_w5_o2_v3l.RData")
-
 
 
 # == == == == == == == == == == == == == == == == == == == == == == == == == == 
@@ -52,14 +50,21 @@ save(HG_network, file="topicnetwork_multiple_w5_o2_v3l.RData")
 # identify stable (makro) cluster solution
 grps <- vector()
 for (i in 1:100){
-  grps[i] <- cluster_walktrap(HG_network2, steps = i*10) %>% length
+  grps[i] <- cluster_walktrap(HG_network, steps = i*10) %>% length
 }
 matplot(grps, type = "l", ylim = c(1,6))
 # 2 big clusters
 
+# other clustering methods
+cluster_fast_greedy(HG_network2) # 11 groups
+cluster_infomap(HG_network2) # 37 groups
+cluster_leiden(HG_network2) # 302 groups, depending on resolution parameter
+# cluster_optimal(HG_network2) # too slow
+
+
 # diameter of the network
 diameter(HG_network2)
-
+diameter(HG_network2, weights = rep(1,length(E(HG_network2)))) #unweighted
 
 # == == == == == == == == == == == == == == == == == == == == == == == == == ==
 # Small worldness & hierarchical measures
@@ -157,7 +162,8 @@ plot(HG_network2
      , edge.width = (E(HG_network2)$weight)
 )
 
-# not used in publication: narrative flow
+# not used in publication: narrative flow 
+# red = start of narrative, green = end of narrative
 plot(HG_network2
      , layout = layout
      , vertex.size = log2(degree(HG_network2)+1)
@@ -168,8 +174,8 @@ plot(HG_network2
      , edge.width = (E(HG_network2)$weight)
 )
 
-# not used in publication: cluster solution
-plot(cluster_walktrap(HG_network2, steps = 500), HG_network2
+# not used in publication: 2-cluster solution
+plot(cluster_walktrap(HG_network, steps = 500), HG_network2
      , layout = layout
      , vertex.size = 2
      , vertex.label = NA
